@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from 'react'
+
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -10,11 +12,7 @@ import {
 } from 'chart.js'
 
 import { Line } from 'react-chartjs-2'
-
-
-// ============================================================
-// REGISTER CHART.JS
-// ============================================================
+import { supabase } from '../supabaseClient'
 
 ChartJS.register(
   CategoryScale,
@@ -28,208 +26,439 @@ ChartJS.register(
 
 
 // ============================================================
+// SETTINGS
+// ============================================================
+
+const SATELLITE = 'Swarm-A'
+const MODEL = 'NRLMSISE-00'
+
+const PAGE_SIZE = 1000
+
+
+// ============================================================
+// FORMAT FUNCTIONS
+// ============================================================
+
+function formatNumber(value, digits = 3) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'N/A'
+  }
+
+  return Number(value).toFixed(digits)
+}
+
+
+function formatScientific(value, digits = 3) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'N/A'
+  }
+
+  return Number(value).toExponential(digits)
+}
+
+
+function formatUtcTime(timestamp) {
+  if (!timestamp) {
+    return 'N/A'
+  }
+
+  return new Date(timestamp).toLocaleTimeString(
+    'en-GB',
+    {
+      timeZone: 'UTC',
+      hour: '2-digit',
+      minute: '2-digit'
+    }
+  )
+}
+
+
+function formatUtcDateTime(timestamp) {
+  if (!timestamp) {
+    return 'N/A'
+  }
+
+  return new Date(timestamp).toLocaleString(
+    'en-GB',
+    {
+      timeZone: 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    }
+  ) + ' UTC'
+}
+
+
+// ============================================================
+// READ ALL ROWS
+//
+// Supabase/PostgREST commonly returns max 1000 rows per request.
+// One full day has 1440 minute samples.
+//
+// Therefore we fetch page-by-page.
+// ============================================================
+
+async function fetchSatelliteDay(startTime, endTime) {
+
+  const allRows = []
+
+  let from = 0
+
+  while (true) {
+
+    const { data, error } = await supabase
+      .from('satellite_timeseries')
+      .select(`
+        timestamp,
+        satellite,
+        orbit_number,
+
+        latitude_deg,
+        longitude_deg,
+        altitude_km,
+        relative_velocity_km_s,
+
+        mass_kg,
+        projected_area_m2,
+        cd,
+
+        density_dns_kg_m3,
+        density_nrl_kg_m3,
+
+        drag_dns_n,
+        drag_nrl_n,
+
+        drag_accel_dns_m_s2,
+        drag_accel_nrl_m_s2,
+
+        semi_major_axis_km,
+        eccentricity,
+        specific_orbital_energy_j_kg,
+
+        perigee_altitude_km,
+        apogee_altitude_km
+      `)
+      .eq('satellite', SATELLITE)
+      .gte('timestamp', startTime)
+      .lt('timestamp', endTime)
+      .order('timestamp', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) {
+      throw error
+    }
+
+    if (!data || data.length === 0) {
+      break
+    }
+
+    allRows.push(...data)
+
+    if (data.length < PAGE_SIZE) {
+      break
+    }
+
+    from += PAGE_SIZE
+  }
+
+  return allRows
+}
+
+
+// ============================================================
+// SPACE WEATHER
+// ============================================================
+
+async function fetchSpaceWeatherDay(startTime, endTime) {
+
+  const allRows = []
+
+  let from = 0
+
+  while (true) {
+
+    const { data, error } = await supabase
+      .from('space_weather')
+      .select(`
+        timestamp,
+        f107,
+        f107a,
+        ap_daily,
+        ap_3h,
+        kp,
+        dst_nt,
+        sym_h_nt
+      `)
+      .gte('timestamp', startTime)
+      .lt('timestamp', endTime)
+      .order('timestamp', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) {
+      throw error
+    }
+
+    if (!data || data.length === 0) {
+      break
+    }
+
+    allRows.push(...data)
+
+    if (data.length < PAGE_SIZE) {
+      break
+    }
+
+    from += PAGE_SIZE
+  }
+
+  return allRows
+}
+
+
+// ============================================================
 // DASHBOARD
 // ============================================================
 
 function Dashboard({
-  result,
-  densitySeries = [],
-  selectedDate,
-  setSelectedDate
+  selectedDate: selectedDateProp,
+  setSelectedDate: setSelectedDateProp
 }) {
 
-  console.log('DASHBOARD RESULT:', result)
-  console.log('DASHBOARD SERIES:', densitySeries)
+  // ----------------------------------------------------------
+  // Local date fallback
+  //
+  // 11 May 2024 is useful as default because it contains
+  // the major May 2024 geomagnetic storm.
+  // ----------------------------------------------------------
+
+  const [localSelectedDate, setLocalSelectedDate] =
+    useState('2024-05-11')
+
+  const selectedDate =
+    selectedDateProp || localSelectedDate
+
+  const setSelectedDate =
+    setSelectedDateProp || setLocalSelectedDate
+
+
+  // ----------------------------------------------------------
+  // State
+  // ----------------------------------------------------------
+
+  const [satelliteData, setSatelliteData] = useState([])
+  const [spaceWeather, setSpaceWeather] = useState([])
+
+  const [loading, setLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
 
 
   // ==========================================================
-  // FORMAT FUNCTIONS
+  // LOAD DATA
   // ==========================================================
 
-  const scientific = (value, digits = 3) => {
+  useEffect(() => {
 
-    if (
-      value === null ||
-      value === undefined ||
-      value === '' ||
-      Number.isNaN(Number(value))
-    ) {
-      return 'N/A'
-    }
+    async function loadDashboard() {
 
-    return Number(value).toExponential(digits)
-  }
-
-
-  const fixed = (value, digits = 3) => {
-
-    if (
-      value === null ||
-      value === undefined ||
-      value === '' ||
-      Number.isNaN(Number(value))
-    ) {
-      return 'N/A'
-    }
-
-    return Number(value).toFixed(digits)
-  }
-
-
-  const formatTime = (timestamp) => {
-
-    if (!timestamp) {
-      return ''
-    }
-
-    const date = new Date(timestamp)
-
-    if (Number.isNaN(date.getTime())) {
-      return ''
-    }
-
-    return date.toLocaleTimeString(
-      'en-GB',
-      {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-        timeZone: 'UTC'
+      if (!selectedDate) {
+        return
       }
-    )
-  }
+
+      setLoading(true)
+      setErrorMessage('')
+
+      try {
+
+        // ----------------------------------------------
+        // UTC day range
+        // ----------------------------------------------
+
+        const start = new Date(
+          `${selectedDate}T00:00:00Z`
+        )
+
+        const end = new Date(start)
+
+        end.setUTCDate(
+          end.getUTCDate() + 1
+        )
+
+        const startTime =
+          start.toISOString()
+
+        const endTime =
+          end.toISOString()
 
 
-  const formatTimestamp = (timestamp) => {
+        // ----------------------------------------------
+        // Query both tables
+        // ----------------------------------------------
 
-    if (!timestamp) {
-      return 'N/A'
-    }
+        const [
+          satelliteRows,
+          weatherRows
+        ] = await Promise.all([
+          fetchSatelliteDay(
+            startTime,
+            endTime
+          ),
 
-    const date = new Date(timestamp)
+          fetchSpaceWeatherDay(
+            startTime,
+            endTime
+          )
+        ])
 
-    if (Number.isNaN(date.getTime())) {
-      return timestamp
-    }
 
-    return date.toLocaleString(
-      'en-GB',
-      {
-        timeZone: 'UTC',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
+        console.log(
+          'SATELLITE ROWS:',
+          satelliteRows.length
+        )
+
+        console.log(
+          'SPACE WEATHER ROWS:',
+          weatherRows.length
+        )
+
+
+        setSatelliteData(
+          satelliteRows
+        )
+
+        setSpaceWeather(
+          weatherRows
+        )
+
+      } catch (error) {
+
+        console.error(
+          'Dashboard load error:',
+          error
+        )
+
+        setErrorMessage(
+          error?.message ||
+          'Unable to load dashboard data'
+        )
+
+        setSatelliteData([])
+        setSpaceWeather([])
+
+      } finally {
+
+        setLoading(false)
       }
-    ) + ' UTC'
-  }
+    }
+
+
+    loadDashboard()
+
+  }, [selectedDate])
 
 
   // ==========================================================
-  // CURRENT / SUMMARY VALUES
+  // LATEST DATA
   // ==========================================================
 
-  const altitude =
-    result?.altitude_km
+  const latestSatellite =
+    satelliteData.length > 0
+      ? satelliteData[satelliteData.length - 1]
+      : null
 
 
-  // DNS POD density
-  const densityDNS =
-    result?.density_dns_kg_m3 ??
-    result?.dns_density_kg_m3 ??
-    result?.density_kg_m3
-
-
-  // NRLMSISE-00 density
-  const densityNRL =
-    result?.density_nrl_kg_m3 ??
-    result?.nrlmsise_density_kg_m3 ??
-    result?.nrlmsise00_density_kg_m3
-
-
-  // Drag calculated from DNS density
-  const dragDNS =
-    result?.drag_dns_n
-
-
-  // Drag calculated from NRLMSISE density
-  const dragNRL =
-    result?.drag_nrl_n ??
-    result?.drag_force_n
-
-
-  // Latitude / Longitude
-  const latitude =
-    result?.latitude_deg ??
-    result?.latitude
-
-
-  const longitude =
-    result?.longitude_deg ??
-    result?.longitude
-
-
-  // ==========================================================
-  // CHART LABELS
-  // ==========================================================
-
-  const chartLabels = densitySeries.map(
-    (item) => formatTime(item.timestamp)
-  )
+  const latestWeather =
+    spaceWeather.length > 0
+      ? spaceWeather[spaceWeather.length - 1]
+      : null
 
 
   // ==========================================================
   // DENSITY CHART
   // ==========================================================
 
-  const densityChartData = {
+  const densityChartData = useMemo(() => {
 
-    labels: chartLabels,
+    return {
 
-    datasets: [
+      labels: satelliteData.map(
+        item => formatUtcTime(item.timestamp)
+      ),
 
-      {
-        label: 'Swarm DNS POD',
+      datasets: [
 
-        data: densitySeries.map(
-          (item) =>
-            item.density_dns_kg_m3 ??
-            item.dns_density_kg_m3 ??
-            item.density_kg_m3 ??
-            null
-        ),
+        {
+          label: 'DNS POD',
+          data: satelliteData.map(
+            item => item.density_dns_kg_m3
+          ),
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.15
+        },
 
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        tension: 0.2,
-        spanGaps: true
-      },
+        {
+          label: 'NRLMSISE-00',
+          data: satelliteData.map(
+            item => item.density_nrl_kg_m3
+          ),
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.15
+        }
 
-      {
-        label: 'NRLMSISE-00',
+      ]
+    }
 
-        data: densitySeries.map(
-          (item) =>
-            item.density_nrl_kg_m3 ??
-            item.nrlmsise_density_kg_m3 ??
-            item.nrlmsise00_density_kg_m3 ??
-            null
-        ),
+  }, [satelliteData])
 
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        tension: 0.2,
-        spanGaps: true
-      }
 
-    ]
-  }
+  // ==========================================================
+  // DRAG CHART
+  // ==========================================================
 
+  const dragChartData = useMemo(() => {
+
+    return {
+
+      labels: satelliteData.map(
+        item => formatUtcTime(item.timestamp)
+      ),
+
+      datasets: [
+
+        {
+          label: 'Drag from DNS POD',
+          data: satelliteData.map(
+            item => item.drag_dns_n
+          ),
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.15
+        },
+
+        {
+          label: 'Drag from NRLMSISE-00',
+          data: satelliteData.map(
+            item => item.drag_nrl_n
+          ),
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.15
+        }
+
+      ]
+    }
+
+  }, [satelliteData])
+
+
+  // ==========================================================
+  // CHART OPTIONS
+  // ==========================================================
 
   const densityChartOptions = {
 
@@ -245,32 +474,21 @@ function Dashboard({
     plugins: {
 
       legend: {
-        display: true,
-        position: 'top'
-      },
-
-      title: {
-        display: false
+        display: true
       },
 
       tooltip: {
 
         callbacks: {
 
-          label: (context) => {
+          label(context) {
 
-            const value = context.parsed.y
-
-            if (
-              value === null ||
-              value === undefined
-            ) {
-              return `${context.dataset.label}: N/A`
-            }
+            const value =
+              context.parsed.y
 
             return (
               `${context.dataset.label}: ` +
-              `${Number(value).toExponential(3)} kg/m³`
+              `${Number(value).toExponential(4)} kg/mÂ³`
             )
           }
         }
@@ -283,11 +501,11 @@ function Dashboard({
 
         title: {
           display: true,
-          text: 'UTC Time'
+          text: 'Time (UTC)'
         },
 
         ticks: {
-          maxTicksLimit: 12
+          maxTicksLimit: 8
         }
       },
 
@@ -295,69 +513,19 @@ function Dashboard({
 
         title: {
           display: true,
-          text: 'Density (kg/m³)'
+          text: 'Density (kg/mÂ³)'
         },
 
         ticks: {
 
-          callback: (value) => {
+          callback(value) {
 
-            if (value === 0) {
-              return '0'
-            }
-
-            return Number(value).toExponential(1)
+            return Number(value)
+              .toExponential(1)
           }
         }
       }
     }
-  }
-
-
-  // ==========================================================
-  // DRAG CHART
-  // ==========================================================
-
-  const dragChartData = {
-
-    labels: chartLabels,
-
-    datasets: [
-
-      {
-        label: 'Drag from DNS POD',
-
-        data: densitySeries.map(
-          (item) =>
-            item.drag_dns_n ??
-            null
-        ),
-
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        tension: 0.2,
-        spanGaps: true
-      },
-
-      {
-        label: 'Drag from NRLMSISE-00',
-
-        data: densitySeries.map(
-          (item) =>
-            item.drag_nrl_n ??
-            item.drag_force_n ??
-            null
-        ),
-
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        tension: 0.2,
-        spanGaps: true
-      }
-
-    ]
   }
 
 
@@ -375,32 +543,21 @@ function Dashboard({
     plugins: {
 
       legend: {
-        display: true,
-        position: 'top'
-      },
-
-      title: {
-        display: false
+        display: true
       },
 
       tooltip: {
 
         callbacks: {
 
-          label: (context) => {
+          label(context) {
 
-            const value = context.parsed.y
-
-            if (
-              value === null ||
-              value === undefined
-            ) {
-              return `${context.dataset.label}: N/A`
-            }
+            const value =
+              context.parsed.y
 
             return (
               `${context.dataset.label}: ` +
-              `${Number(value).toExponential(3)} N`
+              `${Number(value).toExponential(4)} N`
             )
           }
         }
@@ -413,11 +570,11 @@ function Dashboard({
 
         title: {
           display: true,
-          text: 'UTC Time'
+          text: 'Time (UTC)'
         },
 
         ticks: {
-          maxTicksLimit: 12
+          maxTicksLimit: 8
         }
       },
 
@@ -430,13 +587,10 @@ function Dashboard({
 
         ticks: {
 
-          callback: (value) => {
+          callback(value) {
 
-            if (value === 0) {
-              return '0'
-            }
-
-            return Number(value).toExponential(1)
+            return Number(value)
+              .toExponential(1)
           }
         }
       }
@@ -445,40 +599,25 @@ function Dashboard({
 
 
   // ==========================================================
-  // CHECK IF DRAG DATA EXISTS
-  // ==========================================================
-
-  const hasDragData = densitySeries.some(
-    (item) =>
-      item.drag_dns_n !== undefined ||
-      item.drag_nrl_n !== undefined ||
-      item.drag_force_n !== undefined
-  )
-
-
-  // ==========================================================
   // RENDER
   // ==========================================================
 
   return (
-
     <>
 
-      {/* =====================================================
-          PAGE HEADER
-      ===================================================== */}
+      {/* ====================================================
+          HEADER
+      ==================================================== */}
 
       <div className="page-header">
 
         <div>
 
-          <h1>
-            Satellite Drag Dashboard
-          </h1>
+          <h1>Dashboard</h1>
 
           <p>
-            Thermospheric Density, Atmospheric Drag
-            and Orbital Environment
+            Thermospheric Density and
+            Satellite Drag Overview
           </p>
 
         </div>
@@ -486,120 +625,135 @@ function Dashboard({
       </div>
 
 
-      {/* =====================================================
-          FILTER PANEL
-      ===================================================== */}
+      {/* ====================================================
+          FILTER
+      ==================================================== */}
 
       <section className="filter-panel">
 
-
-        {/* SATELLITE */}
-
         <div>
 
-          <label>
-            Satellite
-          </label>
+          <label>Satellite</label>
 
-          <select>
-
-            <option value="Swarm-A">
+          <select value={SATELLITE} disabled>
+            <option value={SATELLITE}>
               Swarm-A
             </option>
-
           </select>
 
         </div>
 
 
-        {/* MODEL */}
-
         <div>
 
-          <label>
-            Atmospheric Model
-          </label>
+          <label>Atmospheric Model</label>
 
-          <select>
-
-            <option value="NRLMSISE-00">
+          <select value={MODEL} disabled>
+            <option value={MODEL}>
               NRLMSISE-00
             </option>
-
           </select>
 
         </div>
 
 
-        {/* DATE */}
-
         <div>
 
-          <label>
-            Date
-          </label>
+          <label>Date</label>
 
           <input
             type="date"
-
-            value={
-              selectedDate || ''
-            }
-
+            value={selectedDate}
             onChange={
-              (e) =>
-                setSelectedDate?.(
+              e =>
+                setSelectedDate(
                   e.target.value
                 )
             }
-
             onKeyDown={
-              (e) =>
+              e =>
                 e.preventDefault()
             }
-
             onClick={
-              (e) =>
-                e.currentTarget.showPicker?.()
+              e =>
+                e.currentTarget
+                  .showPicker?.()
             }
           />
 
         </div>
 
 
-        {/* ALTITUDE */}
-
         <div>
 
-          <label>
-            Current Altitude
-          </label>
+          <label>Current Altitude</label>
 
           <input
             value={
-              altitude !== undefined &&
-              altitude !== null
-                ? `${fixed(altitude, 2)} km`
-                : 'N/A'
+              latestSatellite
+                ? `${formatNumber(
+                    latestSatellite.altitude_km,
+                    3
+                  )} km`
+                : ''
             }
-
             readOnly
           />
 
         </div>
 
-
       </section>
 
 
-      {/* =====================================================
-          MAIN SUMMARY CARDS
-      ===================================================== */}
+      {/* ====================================================
+          STATUS
+      ==================================================== */}
+
+      {loading && (
+
+        <section className="details">
+          <p>
+            Loading data...
+          </p>
+        </section>
+
+      )}
+
+
+      {errorMessage && (
+
+        <section className="details">
+
+          <p>
+            Error: {errorMessage}
+          </p>
+
+        </section>
+
+      )}
+
+
+      {!loading &&
+       !errorMessage &&
+       satelliteData.length === 0 && (
+
+        <section className="details">
+
+          <p>
+            No satellite data available for{' '}
+            {selectedDate}.
+          </p>
+
+        </section>
+
+      )}
+
+
+      {/* ====================================================
+          SUMMARY CARDS
+      ==================================================== */}
 
       <section className="cards">
-
-
-        {/* ALTITUDE */}
 
         <div className="card">
 
@@ -609,21 +763,17 @@ function Dashboard({
 
           <div className="value">
 
-            {fixed(
-              altitude,
-              2
+            {formatNumber(
+              latestSatellite?.altitude_km,
+              3
             )}
 
           </div>
 
-          <span>
-            km
-          </span>
+          <span>km</span>
 
         </div>
 
-
-        {/* DNS DENSITY */}
 
         <div className="card">
 
@@ -633,20 +783,17 @@ function Dashboard({
 
           <div className="value">
 
-            {scientific(
-              densityDNS
+            {formatScientific(
+              latestSatellite
+                ?.density_dns_kg_m3
             )}
 
           </div>
 
-          <span>
-            kg/m³
-          </span>
+          <span>kg/mÂ³</span>
 
         </div>
 
-
-        {/* NRL DENSITY */}
 
         <div className="card">
 
@@ -656,20 +803,17 @@ function Dashboard({
 
           <div className="value">
 
-            {scientific(
-              densityNRL
+            {formatScientific(
+              latestSatellite
+                ?.density_nrl_kg_m3
             )}
 
           </div>
 
-          <span>
-            kg/m³
-          </span>
+          <span>kg/mÂ³</span>
 
         </div>
 
-
-        {/* DRAG */}
 
         <div className="card">
 
@@ -679,56 +823,39 @@ function Dashboard({
 
           <div className="value">
 
-            {scientific(
-              dragNRL
+            {formatScientific(
+              latestSatellite
+                ?.drag_dns_n
             )}
 
           </div>
 
-          <span>
-            N
-          </span>
+          <span>DNS POD â€¢ N</span>
 
         </div>
-
 
       </section>
 
 
-      {/* =====================================================
-          DENSITY + DRAG GRAPHS
-      ===================================================== */}
+      {/* ====================================================
+          GRAPHS
+      ==================================================== */}
 
       <section className="graph-grid">
 
 
-        {/* ===================================================
-            DENSITY GRAPH
-        =================================================== */}
+        {/* DENSITY */}
 
         <div className="graph-box">
 
           <div className="graph-header">
 
-            <div>
-
-              <h2>
-                Density vs Time
-              </h2>
-
-              <p>
-                DNS POD vs NRLMSISE-00
-              </p>
-
-            </div>
-
+            <h2>
+              Density vs Time
+            </h2>
 
             <span>
-
-              {densitySeries.length}
-              {' '}
-              points
-
+              {satelliteData.length} points
             </span>
 
           </div>
@@ -741,66 +868,28 @@ function Dashboard({
             }}
           >
 
-            {
-              densitySeries.length > 0
-                ? (
-
-                  <Line
-                    data={
-                      densityChartData
-                    }
-
-                    options={
-                      densityChartOptions
-                    }
-                  />
-
-                )
-                : (
-
-                  <div className="graph-placeholder">
-
-                    No density data available
-
-                  </div>
-
-                )
-            }
+            <Line
+              data={densityChartData}
+              options={densityChartOptions}
+            />
 
           </div>
 
         </div>
 
 
-        {/* ===================================================
-            DRAG GRAPH
-        =================================================== */}
+        {/* DRAG */}
 
         <div className="graph-box">
 
           <div className="graph-header">
 
-            <div>
-
-              <h2>
-                Satellite Drag vs Time
-              </h2>
-
-              <p>
-                DNS POD vs NRLMSISE-00
-              </p>
-
-            </div>
-
+            <h2>
+              Satellite Drag vs Time
+            </h2>
 
             <span>
-
-              {
-                hasDragData
-                  ? `${densitySeries.length} points`
-                  : 'Waiting for Drag Data'
-              }
-
+              {satelliteData.length} points
             </span>
 
           </div>
@@ -813,44 +902,21 @@ function Dashboard({
             }}
           >
 
-            {
-              hasDragData
-                ? (
-
-                  <Line
-                    data={
-                      dragChartData
-                    }
-
-                    options={
-                      dragChartOptions
-                    }
-                  />
-
-                )
-                : (
-
-                  <div className="graph-placeholder">
-
-                    Drag data will be displayed
-                    after backend calculation
-
-                  </div>
-
-                )
-            }
+            <Line
+              data={dragChartData}
+              options={dragChartOptions}
+            />
 
           </div>
 
         </div>
-
 
       </section>
 
 
-      {/* =====================================================
+      {/* ====================================================
           SPACE WEATHER
-      ===================================================== */}
+      ==================================================== */}
 
       <section className="details">
 
@@ -858,143 +924,72 @@ function Dashboard({
           Space Weather Conditions
         </h2>
 
-
         <div className="detail-grid">
 
-
-          {/* F10.7 */}
-
           <p>
-
-            <strong>
-              F10.7:
-            </strong>
-            {' '}
-
-            {
-              result?.f107 !== undefined
-                ? `${fixed(result.f107, 1)} sfu`
-                : result?.f107_observed !== undefined
-                  ? `${fixed(result.f107_observed, 1)} sfu`
-                  : 'N/A'
-            }
-
+            <strong>F10.7:</strong>{' '}
+            {formatNumber(
+              latestWeather?.f107,
+              1
+            )} sfu
           </p>
 
-
-          {/* F10.7A */}
-
           <p>
-
-            <strong>
-              F10.7A:
-            </strong>
-            {' '}
-
-            {
-              result?.f107a !== undefined
-                ? `${fixed(result.f107a, 1)} sfu`
-                : 'N/A'
-            }
-
+            <strong>F10.7A:</strong>{' '}
+            {formatNumber(
+              latestWeather?.f107a,
+              1
+            )} sfu
           </p>
 
-
-          {/* KP */}
-
           <p>
-
-            <strong>
-              Kp:
-            </strong>
-            {' '}
-
-            {fixed(
-              result?.kp,
+            <strong>Kp:</strong>{' '}
+            {formatNumber(
+              latestWeather?.kp,
               1
             )}
-
           </p>
 
-
-          {/* AP */}
-
           <p>
-
-            <strong>
-              Ap:
-            </strong>
-            {' '}
-
-            {fixed(
-              result?.ap,
+            <strong>Ap Daily:</strong>{' '}
+            {formatNumber(
+              latestWeather?.ap_daily,
               1
             )}
-
           </p>
 
-
-          {/* AP 3H */}
-
           <p>
-
-            <strong>
-              Ap (3-hour):
-            </strong>
-            {' '}
-
-            {fixed(
-              result?.ap_3h,
+            <strong>Ap (3-hour):</strong>{' '}
+            {formatNumber(
+              latestWeather?.ap_3h,
               1
             )}
-
           </p>
-
-
-          {/* DST */}
 
           <p>
-
-            <strong>
-              Dst:
-            </strong>
-            {' '}
-
-            {
-              result?.dst !== undefined
-                ? `${fixed(result.dst, 0)} nT`
-                : 'N/A'
-            }
-
+            <strong>Dst:</strong>{' '}
+            {formatNumber(
+              latestWeather?.dst_nt,
+              0
+            )} nT
           </p>
-
-
-          {/* SYM-H */}
 
           <p>
-
-            <strong>
-              SYM-H:
-            </strong>
-            {' '}
-
-            {
-              result?.sym_h !== undefined
-                ? `${fixed(result.sym_h, 0)} nT`
-                : 'N/A'
-            }
-
+            <strong>SYM-H:</strong>{' '}
+            {formatNumber(
+              latestWeather?.sym_h_nt,
+              0
+            )} nT
           </p>
-
 
         </div>
 
       </section>
 
 
-      {/* =====================================================
+      {/* ====================================================
           ORBITAL STATE
-      ===================================================== */}
+      ==================================================== */}
 
       <section className="details">
 
@@ -1002,239 +997,129 @@ function Dashboard({
           Orbital State
         </h2>
 
-
         <div className="detail-grid">
 
-
-          {/* SATELLITE */}
-
           <p>
-
-            <strong>
-              Satellite:
-            </strong>
-            {' '}
-
-            {result?.satellite || 'Swarm-A'}
-
+            <strong>Timestamp:</strong>{' '}
+            {formatUtcDateTime(
+              latestSatellite?.timestamp
+            )}
           </p>
 
-
-          {/* ORBIT TYPE */}
-
           <p>
-
-            <strong>
-              Orbit Type:
-            </strong>
-            {' '}
-
-            Low Earth Orbit (LEO)
-
+            <strong>Satellite:</strong>{' '}
+            {latestSatellite?.satellite ??
+              'N/A'}
           </p>
 
-
-          {/* ORBIT NUMBER */}
-
           <p>
-
-            <strong>
-              Orbit Number:
-            </strong>
-            {' '}
-
-            {result?.orbit_number ?? 'N/A'}
-
+            <strong>Orbit Number:</strong>{' '}
+            {latestSatellite
+              ?.orbit_number ?? 'N/A'}
           </p>
 
-
-          {/* ALTITUDE */}
-
           <p>
-
-            <strong>
-              Altitude:
-            </strong>
-            {' '}
-
-            {
-              altitude !== undefined
-                ? `${fixed(altitude, 3)} km`
-                : 'N/A'
-            }
-
+            <strong>Latitude:</strong>{' '}
+            {formatNumber(
+              latestSatellite
+                ?.latitude_deg,
+              4
+            )}Â°
           </p>
 
-
-          {/* LATITUDE */}
-
           <p>
-
-            <strong>
-              Latitude:
-            </strong>
-            {' '}
-
-            {
-              latitude !== undefined
-                ? `${fixed(latitude, 3)}°`
-                : 'N/A'
-            }
-
+            <strong>Longitude:</strong>{' '}
+            {formatNumber(
+              latestSatellite
+                ?.longitude_deg,
+              4
+            )}Â°
           </p>
 
-
-          {/* LONGITUDE */}
-
           <p>
-
-            <strong>
-              Longitude:
-            </strong>
-            {' '}
-
-            {
-              longitude !== undefined
-                ? `${fixed(longitude, 3)}°`
-                : 'N/A'
-            }
-
+            <strong>Altitude:</strong>{' '}
+            {formatNumber(
+              latestSatellite
+                ?.altitude_km,
+              3
+            )} km
           </p>
 
-
-          {/* VELOCITY */}
-
           <p>
-
             <strong>
               Relative Velocity:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              result?.relative_velocity_km_s !== undefined
-                ? `${fixed(
-                    result.relative_velocity_km_s,
-                    3
-                  )} km/s`
-                : 'N/A'
-            }
-
+            {formatNumber(
+              latestSatellite
+                ?.relative_velocity_km_s,
+              4
+            )} km/s
           </p>
 
-
-          {/* SMA */}
-
           <p>
-
             <strong>
               Semi-Major Axis:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              result?.semi_major_axis_km !== undefined
-                ? `${fixed(
-                    result.semi_major_axis_km,
-                    3
-                  )} km`
-                : 'N/A'
-            }
-
+            {formatNumber(
+              latestSatellite
+                ?.semi_major_axis_km,
+              3
+            )} km
           </p>
 
-
-          {/* ECCENTRICITY */}
-
           <p>
-
             <strong>
               Eccentricity:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              result?.eccentricity !== undefined
-                ? fixed(
-                    result.eccentricity,
-                    7
-                  )
-                : 'N/A'
-            }
-
+            {formatNumber(
+              latestSatellite
+                ?.eccentricity,
+              7
+            )}
           </p>
 
-
-          {/* ENERGY */}
-
           <p>
-
             <strong>
               Specific Orbital Energy:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              result?.specific_orbital_energy_j_kg !== undefined
-                ? `${scientific(
-                    result.specific_orbital_energy_j_kg
-                  )} J/kg`
-                : 'N/A'
-            }
-
+            {formatScientific(
+              latestSatellite
+                ?.specific_orbital_energy_j_kg
+            )} J/kg
           </p>
-
-
-          {/* PERIGEE */}
 
           <p>
+            <strong>Perigee:</strong>{' '}
 
-            <strong>
-              Perigee:
-            </strong>
-            {' '}
-
-            {
-              result?.perigee_altitude_km !== undefined
-                ? `${fixed(
-                    result.perigee_altitude_km,
-                    3
-                  )} km`
-                : 'N/A'
-            }
-
+            {formatNumber(
+              latestSatellite
+                ?.perigee_altitude_km,
+              3
+            )} km
           </p>
-
-
-          {/* APOGEE */}
 
           <p>
+            <strong>Apogee:</strong>{' '}
 
-            <strong>
-              Apogee:
-            </strong>
-            {' '}
-
-            {
-              result?.apogee_altitude_km !== undefined
-                ? `${fixed(
-                    result.apogee_altitude_km,
-                    3
-                  )} km`
-                : 'N/A'
-            }
-
+            {formatNumber(
+              latestSatellite
+                ?.apogee_altitude_km,
+              3
+            )} km
           </p>
-
 
         </div>
 
       </section>
 
 
-      {/* =====================================================
-          ATMOSPHERIC DRAG CALCULATION
-      ===================================================== */}
+      {/* ====================================================
+          DRAG CALCULATION
+      ==================================================== */}
 
       <section className="details">
 
@@ -1242,249 +1127,134 @@ function Dashboard({
           Atmospheric Drag Calculation
         </h2>
 
-
         <div className="detail-grid">
 
-
-          {/* TIMESTAMP */}
-
           <p>
-
-            <strong>
-              Timestamp:
-            </strong>
-            {' '}
-
-            {formatTimestamp(
-              result?.timestamp
-            )}
-
-          </p>
-
-
-          {/* MODEL */}
-
-          <p>
-
-            <strong>
-              Atmospheric Model:
-            </strong>
-            {' '}
-
-            NRLMSISE-00
-
-          </p>
-
-
-          {/* DNS DENSITY */}
-
-          <p>
-
             <strong>
               DNS Density:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              densityDNS !== undefined
-                ? `${scientific(
-                    densityDNS
-                  )} kg/m³`
-                : 'N/A'
-            }
-
+            {formatScientific(
+              latestSatellite
+                ?.density_dns_kg_m3
+            )} kg/mÂ³
           </p>
 
 
-          {/* NRL DENSITY */}
-
           <p>
-
             <strong>
               NRLMSISE-00 Density:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              densityNRL !== undefined
-                ? `${scientific(
-                    densityNRL
-                  )} kg/m³`
-                : 'N/A'
-            }
-
+            {formatScientific(
+              latestSatellite
+                ?.density_nrl_kg_m3
+            )} kg/mÂ³
           </p>
 
 
-          {/* DNS DRAG */}
-
           <p>
-
             <strong>
               DNS Drag:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              dragDNS !== undefined
-                ? `${scientific(
-                    dragDNS
-                  )} N`
-                : 'N/A'
-            }
-
+            {formatScientific(
+              latestSatellite
+                ?.drag_dns_n
+            )} N
           </p>
 
 
-          {/* NRL DRAG */}
-
           <p>
-
             <strong>
-              NRLMSISE Drag:
-            </strong>
-            {' '}
+              NRLMSISE-00 Drag:
+            </strong>{' '}
 
-            {
-              dragNRL !== undefined
-                ? `${scientific(
-                    dragNRL
-                  )} N`
-                : 'N/A'
-            }
-
+            {formatScientific(
+              latestSatellite
+                ?.drag_nrl_n
+            )} N
           </p>
 
 
-          {/* MASS */}
-
           <p>
+            <strong>Mass:</strong>{' '}
 
-            <strong>
-              Satellite Mass:
-            </strong>
-            {' '}
-
-            {
-              result?.mass_kg !== undefined
-                ? `${fixed(
-                    result.mass_kg,
-                    3
-                  )} kg`
-                : 'N/A'
-            }
-
+            {formatNumber(
+              latestSatellite
+                ?.mass_kg,
+              3
+            )} kg
           </p>
 
 
-          {/* AREA */}
-
           <p>
-
             <strong>
               Projected Area:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              result?.area_projected_m2 !== undefined
-                ? `${fixed(
-                    result.area_projected_m2,
-                    3
-                  )} m²`
-                : 'N/A'
-            }
-
+            {formatNumber(
+              latestSatellite
+                ?.projected_area_m2,
+              4
+            )} mÂ²
           </p>
 
 
-          {/* CD */}
-
           <p>
-
             <strong>
               Drag Coefficient:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {fixed(
-              result?.cd,
+            {formatNumber(
+              latestSatellite?.cd,
               2
             )}
-
           </p>
 
 
-          {/* RELATIVE VELOCITY */}
-
           <p>
-
             <strong>
               Relative Velocity:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              result?.relative_velocity_km_s !== undefined
-                ? `${fixed(
-                    result.relative_velocity_km_s,
-                    3
-                  )} km/s`
-                : 'N/A'
-            }
-
+            {formatNumber(
+              latestSatellite
+                ?.relative_velocity_km_s,
+              4
+            )} km/s
           </p>
 
 
-          {/* DRAG ACCELERATION DNS */}
-
           <p>
-
             <strong>
               DNS Drag Acceleration:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              result?.drag_acceleration_dns_m_s2 !== undefined
-                ? `${scientific(
-                    result.drag_acceleration_dns_m_s2
-                  )} m/s²`
-                : 'N/A'
-            }
-
+            {formatScientific(
+              latestSatellite
+                ?.drag_accel_dns_m_s2
+            )} m/sÂ²
           </p>
 
-
-          {/* DRAG ACCELERATION NRL */}
 
           <p>
-
             <strong>
               NRL Drag Acceleration:
-            </strong>
-            {' '}
+            </strong>{' '}
 
-            {
-              result?.drag_acceleration_nrl_m_s2 !== undefined
-                ? `${scientific(
-                    result.drag_acceleration_nrl_m_s2
-                  )} m/s²`
-                : 'N/A'
-            }
-
+            {formatScientific(
+              latestSatellite
+                ?.drag_accel_nrl_m_s2
+            )} m/sÂ²
           </p>
-
 
         </div>
 
       </section>
 
-
     </>
-
   )
 }
-
 
 export default Dashboard

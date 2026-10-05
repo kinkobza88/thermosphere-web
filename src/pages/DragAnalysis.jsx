@@ -1,342 +1,1883 @@
-import { useState } from 'react'                              // ใช้เก็บวันที่ เวลา และข้อมูลกราฟที่เลือก
-import { supabase } from '../supabaseClient'                  // ใช้ Query ข้อมูลจาก Supabase
+import { useMemo, useState } from 'react'
+import { supabase } from '../supabaseClient'
 
 import {
-  Chart as ChartJS,                                           // ตัวหลักของ Chart.js
-  CategoryScale,                                              // ใช้สำหรับแกน X
-  LinearScale,                                                // ใช้สำหรับแกน Y
-  PointElement,                                               // ใช้แสดงจุดข้อมูล
-  LineElement,                                                // ใช้แสดงเส้นกราฟ
-  Tooltip,                                                    // ใช้แสดงค่าตอนชี้กราฟ
-  Legend                                                      // ใช้แสดงชื่อชุดข้อมูล
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend
 } from 'chart.js'
 
-import { Line } from 'react-chartjs-2'                        // ใช้สร้างกราฟเส้น
+import { Line } from 'react-chartjs-2'
+
+
 ChartJS.register(
-  CategoryScale,                                              // ลงทะเบียนแกน X
-  LinearScale,                                                // ลงทะเบียนแกน Y
-  PointElement,                                               // ลงทะเบียนจุด
-  LineElement,                                                // ลงทะเบียนเส้น
-  Tooltip,                                                    // ลงทะเบียน Tooltip
-  Legend                                                      // ลงทะเบียน Legend
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend
 )
-function DragAnalysis({ result }) {
-  const [date, setDate] = useState('2026-01-01')              // เก็บวันที่ที่ผู้ใช้เลือก
-  const [startTime, setStartTime] = useState('00:00')         // เก็บเวลาเริ่มต้น
-  const [endTime, setEndTime] = useState('23:00')             // เก็บเวลาสิ้นสุด
+
+
+// ============================================================
+// SETTINGS
+// ============================================================
+
+const SATELLITE = 'Swarm-A'
+const PAGE_SIZE = 1000
+
+
+// ============================================================
+// FORMAT FUNCTIONS
+// ============================================================
+
+function formatScientific(value, digits = 3) {
+
+  if (
+    value === null ||
+    value === undefined ||
+    Number.isNaN(Number(value))
+  ) {
+    return 'N/A'
+  }
+
+  return Number(value).toExponential(digits)
+}
+
+
+function formatNumber(value, digits = 3) {
+
+  if (
+    value === null ||
+    value === undefined ||
+    Number.isNaN(Number(value))
+  ) {
+    return 'N/A'
+  }
+
+  return Number(value).toFixed(digits)
+}
+
+
+function formatUtcTime(timestamp) {
+
+  if (!timestamp) {
+    return 'N/A'
+  }
+
+  return new Date(timestamp).toLocaleTimeString(
+    'en-GB',
+    {
+      timeZone: 'UTC',
+      hour: '2-digit',
+      minute: '2-digit'
+    }
+  )
+}
+
+
+// ============================================================
+// DRAG ANALYSIS
+// ============================================================
+
+function DragAnalysis() {
+
+  // ==========================================================
+  // USER INPUT
+  // ==========================================================
+
+  const [date, setDate] =
+    useState('2024-05-11')
+
+  const [startTime, setStartTime] =
+    useState('00:00')
+
+  const [endTime, setEndTime] =
+    useState('06:00')
+
+
+  // ==========================================================
+  // DATA STATE
+  // ==========================================================
+
+  const [dragData, setDragData] =
+    useState([])
+
+  const [loading, setLoading] =
+    useState(false)
+
+  const [error, setError] =
+    useState(null)
+
+  const [hasPlotted, setHasPlotted] =
+    useState(false)
+
+
+  // ==========================================================
+  // TIME OPTIONS
+  // ==========================================================
+
   const hours = Array.from(
-  { length: 24 },                                      // สร้างตัวเลือกชั่วโมงทั้งหมด 24 ชั่วโมง
-  (_, i) => String(i).padStart(2, '0')                 // ได้ค่า 00 ถึง 23
-)
+    { length: 24 },
+    (_, i) =>
+      String(i).padStart(2, '0')
+  )
 
-const minutes = Array.from(
-  { length: 60 },                                      // สร้างตัวเลือกนาทีทั้งหมด 60 นาที
-  (_, i) => String(i).padStart(2, '0')                 // ได้ค่า 00 ถึง 59
-)
-  const [dragData, setDragData] = useState([])                 // เก็บข้อมูล Drag ที่ Query ได้
-  const [loading, setLoading] = useState(false)                // ใช้แสดงสถานะ Loading
-  const [error, setError] = useState(null)                     // เก็บ Error หาก Query ไม่สำเร็จ
-  const [hasPlotted, setHasPlotted] = useState(false)          // ตรวจว่ากด Plot แล้วหรือยัง
-    const handlePlot = async () => {
-    setLoading(true)                                          // เริ่มโหลดข้อมูล
-    setError(null)                                            // ล้าง Error เดิม
-    setHasPlotted(false)                                      // ซ่อนผลเดิมระหว่าง Query
+  const minutes = Array.from(
+    { length: 60 },
+    (_, i) =>
+      String(i).padStart(2, '0')
+  )
 
-    const startDateTime = `${date}T${startTime}:00Z`          // รวมวันที่และเวลาเริ่มต้น
-    const endDateTime = `${date}T${endTime}:59.999Z`          // รวมวันที่และเวลาสิ้นสุด
 
-    const { data, error } = await supabase
-      .from('swarm_drag_result')                              // Query ตาราง Swarm Drag
-      .select('timestamp, drag_force_n, density_kg_m3')       // ดึงเวลา Drag และ Density
-      .gte('timestamp', startDateTime)                        // เริ่มตามเวลาที่ผู้ใช้เลือก
-      .lte('timestamp', endDateTime)                          // สิ้นสุดตามเวลาที่ผู้ใช้เลือก
-      .order('timestamp', { ascending: true })                // เรียงตามเวลา
+  // ==========================================================
+  // QUERY DATA
+  // ==========================================================
 
-    if (error) {
-      console.error('Drag query error:', error)               // แสดง Error ใน Console
-      setError(error.message)                                 // เก็บข้อความ Error
-      setLoading(false)                                       // หยุด Loading
+  const handlePlot = async () => {
+
+    setLoading(true)
+    setError(null)
+    setDragData([])
+    setHasPlotted(false)
+
+
+    // --------------------------------------------------------
+    // Validate time
+    // --------------------------------------------------------
+
+    if (endTime < startTime) {
+
+      setError(
+        'End Time must be later than Start Time.'
+      )
+
+      setLoading(false)
+
       return
     }
 
-    console.log('DRAG DATA:', data)                            // ตรวจสอบข้อมูล Drag
-    console.log('DRAG POINTS:', data?.length)                  // ตรวจสอบจำนวนจุด
 
-    setDragData(data || [])                                   // เก็บข้อมูลสำหรับสร้างกราฟ
-    setHasPlotted(true)                                       // แจ้งว่า Query เสร็จแล้ว
-    setLoading(false)                                         // หยุด Loading
+    // --------------------------------------------------------
+    // UTC time range
+    // --------------------------------------------------------
+
+    const startDateTime =
+      `${date}T${startTime}:00Z`
+
+    const endDateTime =
+      `${date}T${endTime}:59.999Z`
+
+
+    let allData = []
+
+    let from = 0
+
+    let hasMore = true
+
+
+    try {
+
+      // ======================================================
+      // PAGINATION
+      //
+      // Supabase may return only 1000 rows per request.
+      // One full day = about 1440 minute samples.
+      // ======================================================
+
+      while (hasMore) {
+
+        const {
+          data,
+          error: queryError
+        } = await supabase
+
+          .from('satellite_timeseries')
+
+          .select(`
+            timestamp,
+            satellite,
+            orbit_number,
+
+            altitude_km,
+            relative_velocity_km_s,
+
+            mass_kg,
+            projected_area_m2,
+            cd,
+
+            density_dns_kg_m3,
+            density_nrl_kg_m3,
+
+            drag_dns_n,
+            drag_nrl_n,
+
+            drag_accel_dns_m_s2,
+            drag_accel_nrl_m_s2,
+
+            semi_major_axis_km,
+            eccentricity
+          `)
+
+          .eq(
+            'satellite',
+            SATELLITE
+          )
+
+          .gte(
+            'timestamp',
+            startDateTime
+          )
+
+          .lte(
+            'timestamp',
+            endDateTime
+          )
+
+          .order(
+            'timestamp',
+            {
+              ascending: true
+            }
+          )
+
+          .range(
+            from,
+            from + PAGE_SIZE - 1
+          )
+
+
+        if (queryError) {
+          throw queryError
+        }
+
+
+        const rows =
+          data || []
+
+
+        allData = [
+          ...allData,
+          ...rows
+        ]
+
+
+        if (
+          rows.length <
+          PAGE_SIZE
+        ) {
+
+          hasMore = false
+
+        } else {
+
+          from += PAGE_SIZE
+        }
+      }
+
+
+      console.log(
+        'DRAG START:',
+        startDateTime
+      )
+
+      console.log(
+        'DRAG END:',
+        endDateTime
+      )
+
+      console.log(
+        'DRAG POINTS:',
+        allData.length
+      )
+
+      console.log(
+        'DRAG SAMPLE:',
+        allData.slice(0, 5)
+      )
+
+
+      setDragData(
+        allData
+      )
+
+      setHasPlotted(true)
+
+
+    } catch (queryError) {
+
+      console.error(
+        'Drag query error:',
+        queryError
+      )
+
+      setError(
+        queryError?.message ||
+        'Unable to load drag data.'
+      )
+
+
+    } finally {
+
+      setLoading(false)
+    }
   }
-    const dragChartData = {
-    labels: dragData.map((item) =>
-      new Date(item.timestamp).toLocaleTimeString('en-GB', {
-        timeZone: 'UTC',                                      // แสดงเวลาเป็น UTC
-        hour: '2-digit',                                      // แสดงชั่วโมง
-        minute: '2-digit'                                     // แสดงนาที
-      })
-    ),
 
-    datasets: [
-  {
-    label: 'Swarm-A Drag Force',                        // ชื่อเส้นกราฟ
-    data: dragData.map((item) => item.drag_force_n),    // ค่า Drag Force จากฐานข้อมูล
 
-    borderColor: '#0f766e',                             // สีเส้นให้เข้มและอ่านง่าย
-    backgroundColor: 'rgba(15, 118, 110, 0.12)',        // สีพื้นจาง ๆ ใต้เส้น
-    borderWidth: 3,                                     // ความหนาเส้น
-    pointRadius: 2,                                     // ลดขนาดจุด ไม่ให้รก
-    pointHoverRadius: 5,                                // ขยายจุดตอนชี้เมาส์
-    tension: 0.25,                                      // ทำเส้นให้นุ่มขึ้น
-    fill: true                                          // เติมพื้นที่ใต้เส้นเล็กน้อย
-  }
-]
-  }
-   const dragChartOptions = {
-  responsive: true,                                    // ให้กราฟปรับตามขนาด container
-  maintainAspectRatio: false,                          // ให้ใช้ความสูงของกรอบเต็ม
+  // ==========================================================
+  // LATEST SAMPLE
+  //
+  // ใช้แถวล่าสุดในช่วงเวลาที่เลือกสำหรับ Calculation Inputs
+  // ==========================================================
 
-  interaction: {
-    mode: 'index',                                     // ชี้จุดแล้วอ่านค่าตามเวลาได้ง่าย
-    intersect: false                                   // ไม่ต้องชี้ตรงจุดเป๊ะ ๆ
-  },
+  const latestSample =
+    dragData.length > 0
+      ? dragData[
+          dragData.length - 1
+        ]
+      : null
 
-  plugins: {
-    legend: {
-      display: true,                                   // แสดงชื่อเส้นกราฟ
-      position: 'top'                                  // วาง legend ด้านบน
+
+  // ==========================================================
+  // CALCULATE DRAG AGAIN FROM FORMULA
+  //
+  // Fd = 0.5 * rho * Cd * A * V^2
+  //
+  // V database = km/s
+  // Formula      = m/s
+  // ==========================================================
+
+  const formulaResults =
+    useMemo(() => {
+
+      if (!latestSample) {
+        return null
+      }
+
+
+      const cd =
+        Number(
+          latestSample.cd
+        )
+
+      const area =
+        Number(
+          latestSample.projected_area_m2
+        )
+
+      const velocityMps =
+        Number(
+          latestSample.relative_velocity_km_s
+        ) * 1000
+
+
+      const densityDns =
+        Number(
+          latestSample.density_dns_kg_m3
+        )
+
+      const densityNrl =
+        Number(
+          latestSample.density_nrl_kg_m3
+        )
+
+
+      if (
+        !Number.isFinite(cd) ||
+        !Number.isFinite(area) ||
+        !Number.isFinite(velocityMps)
+      ) {
+        return null
+      }
+
+
+      const dnsDrag =
+        0.5 *
+        densityDns *
+        cd *
+        area *
+        velocityMps ** 2
+
+
+      const nrlDrag =
+        0.5 *
+        densityNrl *
+        cd *
+        area *
+        velocityMps ** 2
+
+
+      return {
+
+        dnsDrag,
+        nrlDrag,
+        velocityMps
+      }
+
+    }, [latestSample])
+
+
+  // ==========================================================
+  // SUMMARY
+  // ==========================================================
+
+  const summary =
+    useMemo(() => {
+
+      if (
+        !dragData ||
+        dragData.length === 0
+      ) {
+        return null
+      }
+
+
+      const valid =
+        dragData.filter(
+          row =>
+
+            Number.isFinite(
+              Number(
+                row.drag_dns_n
+              )
+            ) &&
+
+            Number.isFinite(
+              Number(
+                row.drag_nrl_n
+              )
+            )
+        )
+
+
+      if (
+        valid.length === 0
+      ) {
+        return null
+      }
+
+
+      // ------------------------------------------------------
+      // Mean DNS drag
+      // ------------------------------------------------------
+
+      const meanDns =
+        valid.reduce(
+          (sum, row) =>
+            sum +
+            Number(
+              row.drag_dns_n
+            ),
+          0
+        ) / valid.length
+
+
+      // ------------------------------------------------------
+      // Mean NRL drag
+      // ------------------------------------------------------
+
+      const meanNrl =
+        valid.reduce(
+          (sum, row) =>
+            sum +
+            Number(
+              row.drag_nrl_n
+            ),
+          0
+        ) / valid.length
+
+
+      // ------------------------------------------------------
+      // Peak DNS
+      // ------------------------------------------------------
+
+      const peakDns =
+        valid.reduce(
+          (maxRow, row) =>
+
+            Number(
+              row.drag_dns_n
+            ) >
+            Number(
+              maxRow.drag_dns_n
+            )
+
+              ? row
+              : maxRow,
+
+          valid[0]
+        )
+
+
+      // ------------------------------------------------------
+      // Peak NRL
+      // ------------------------------------------------------
+
+      const peakNrl =
+        valid.reduce(
+          (maxRow, row) =>
+
+            Number(
+              row.drag_nrl_n
+            ) >
+            Number(
+              maxRow.drag_nrl_n
+            )
+
+              ? row
+              : maxRow,
+
+          valid[0]
+        )
+
+
+      // ------------------------------------------------------
+      // Difference
+      //
+      // Positive:
+      // NRL drag > DNS drag
+      // ------------------------------------------------------
+
+      const differencePercent =
+        meanDns !== 0
+          ? (
+              (
+                meanNrl -
+                meanDns
+              ) /
+              meanDns
+            ) * 100
+          : null
+
+
+      return {
+
+        count:
+          valid.length,
+
+        meanDns,
+
+        meanNrl,
+
+        peakDns:
+          Number(
+            peakDns.drag_dns_n
+          ),
+
+        peakDnsTime:
+          peakDns.timestamp,
+
+        peakNrl:
+          Number(
+            peakNrl.drag_nrl_n
+          ),
+
+        peakNrlTime:
+          peakNrl.timestamp,
+
+        differencePercent
+      }
+
+    }, [dragData])
+
+
+  // ==========================================================
+  // CHART DATA
+  // ==========================================================
+
+  const dragChartData =
+    useMemo(() => {
+
+      return {
+
+        labels:
+          dragData.map(
+            item =>
+              formatUtcTime(
+                item.timestamp
+              )
+          ),
+
+
+        datasets: [
+
+          // --------------------------------------------------
+          // DNS POD DRAG
+          // --------------------------------------------------
+
+          {
+            label:
+              'Drag from DNS POD',
+
+            data:
+              dragData.map(
+                item =>
+                  item.drag_dns_n
+              ),
+
+            borderWidth: 2,
+
+            pointRadius:
+              dragData.length > 300
+                ? 0
+                : 2,
+
+            pointHoverRadius: 5,
+
+            tension: 0.15
+          },
+
+
+          // --------------------------------------------------
+          // NRLMSISE-00 DRAG
+          // --------------------------------------------------
+
+          {
+            label:
+              'Drag from NRLMSISE-00',
+
+            data:
+              dragData.map(
+                item =>
+                  item.drag_nrl_n
+              ),
+
+            borderWidth: 2,
+
+            pointRadius:
+              dragData.length > 300
+                ? 0
+                : 2,
+
+            pointHoverRadius: 5,
+
+            tension: 0.15
+          },
+
+
+          // --------------------------------------------------
+          // DNS AVERAGE
+          // --------------------------------------------------
+
+          {
+            label:
+              'Average DNS Drag',
+
+            data:
+              dragData.map(
+                () =>
+                  summary?.meanDns ??
+                  null
+              ),
+
+            borderWidth: 2,
+
+            borderDash: [
+              6,
+              6
+            ],
+
+            pointRadius: 0,
+
+            tension: 0
+          }
+
+        ]
+      }
+
+    }, [
+      dragData,
+      summary
+    ])
+
+
+  // ==========================================================
+  // CHART OPTIONS
+  // ==========================================================
+
+  const dragChartOptions = {
+
+    responsive: true,
+
+    maintainAspectRatio: false,
+
+
+    interaction: {
+
+      mode: 'index',
+
+      intersect: false
     },
 
-    tooltip: {
-      callbacks: {
-        label: (context) =>
-          `Drag Force: ${Number(context.raw).toExponential(3)} N` // แสดงค่าตอน hover ให้อ่านง่าย
-      }
-    }
-  },
 
-  scales: {
-    x: {
-      title: {
-        display: true,                                 // แสดงชื่อแกน X
-        text: 'Time (UTC)'                             // ชื่อแกนเวลา
+    plugins: {
+
+      legend: {
+
+        display: true,
+
+        position: 'top'
       },
 
-      grid: {
-        display: false                                 // ซ่อนเส้นตารางแนวตั้ง ลดความรก
-      },
 
-      ticks: {
-        maxTicksLimit: 12,                             // จำกัดจำนวน label บนแกน X
-        maxRotation: 0,                                // ไม่เอียงตัวเลขเวลา
-        autoSkip: true                                 // ข้าม label บางตัวอัตโนมัติ
+      tooltip: {
+
+        callbacks: {
+
+          label(context) {
+
+            const value =
+              context.parsed.y
+
+
+            if (
+              value === null ||
+              value === undefined
+            ) {
+
+              return (
+                `${context.dataset.label}: N/A`
+              )
+            }
+
+
+            return (
+              `${context.dataset.label}: ` +
+              `${Number(value).toExponential(4)} N`
+            )
+          }
+        }
       }
     },
 
-    y: {
-      title: {
-        display: true,                                 // แสดงชื่อแกน Y
-        text: 'Drag Force (N)'                         // หน่วย Drag
+
+    scales: {
+
+      x: {
+
+        title: {
+
+          display: true,
+
+          text: 'Time (UTC)'
+        },
+
+
+        ticks: {
+
+          maxTicksLimit: 12,
+
+          maxRotation: 0,
+
+          autoSkip: true
+        }
       },
 
-      grid: {
-        color: '#e5e7eb'                               // ใช้เส้นแนวนอนสีอ่อน
-      },
 
-      ticks: {
-        callback: (value) => Number(value).toExponential(2) // ย่อเลข เช่น 1.20e-4
+      y: {
+
+        title: {
+
+          display: true,
+
+          text: 'Drag Force (N)'
+        },
+
+
+        ticks: {
+
+          callback(value) {
+
+            return Number(
+              value
+            ).toExponential(2)
+          }
+        }
       }
     }
   }
-}
+
+
+  // ==========================================================
+  // RENDER
+  // ==========================================================
+
   return (
     <>
+
+      {/* ====================================================
+          HEADER
+      ==================================================== */}
+
       <div className="page-header">
+
         <div>
-          <h1>Drag Analysis</h1>
-          <p>Atmospheric drag calculation parameters</p>
+
+          <h1>
+            Drag Analysis
+          </h1>
+
+          <p>
+            Atmospheric drag calculation
+            and comparison
+          </p>
+
         </div>
+
       </div>
+
+
+      {/* ====================================================
+          FILTER
+      ==================================================== */}
+
       <section className="filter-panel">
-  <div>
-    <label>Date</label>
 
-    <input
-      type="date"                                            // เลือกวันที่จากปฏิทิน
-      value={date}                                           // วันที่ที่เลือกอยู่
-      onChange={(e) => setDate(e.target.value)}              // เปลี่ยนวันที่
-      onKeyDown={(e) => e.preventDefault()}               // ป้องกันการพิมพ์วันที่จากคีย์บอร์ด
-      onClick={(e) => e.currentTarget.showPicker?.()}     // คลิกช่องแล้วเปิดปฏิทินทันที
-    />
-  </div>
 
-<div>
-  <label>Start Time</label>
+        {/* SATELLITE */}
 
-  <div className="time-selector">
-    <select
-      value={startTime.split(':')[0]}                                  // ชั่วโมงที่เลือกอยู่
-      onChange={(e) =>
-        setStartTime(`${e.target.value}:${startTime.split(':')[1]}`)    // เปลี่ยนเฉพาะชั่วโมง
-      }
-    >
-      {hours.map((hour) => (
-        <option key={hour} value={hour}>
-          {hour}
-        </option>
-      ))}
-    </select>
+        <div>
 
-    <span>:</span>
+          <label>
+            Satellite
+          </label>
 
-    <select
-      value={startTime.split(':')[1]}                                  // นาทีที่เลือกอยู่
-      onChange={(e) =>
-        setStartTime(`${startTime.split(':')[0]}:${e.target.value}`)    // เปลี่ยนเฉพาะนาที
-      }
-    >
-      {minutes.map((minute) => (
-        <option key={minute} value={minute}>
-          {minute}
-        </option>
-      ))}
-    </select>
-  </div>
-</div>
+          <select
+            value={SATELLITE}
+            disabled
+          >
 
-  <div>
-  <label>End Time</label>
+            <option value="Swarm-A">
+              Swarm-A
+            </option>
 
-  <div className="time-selector">
-    <select
-      value={endTime.split(':')[0]}                                    // ชั่วโมงสิ้นสุดที่เลือกอยู่
-      onChange={(e) =>
-        setEndTime(`${e.target.value}:${endTime.split(':')[1]}`)        // เปลี่ยนเฉพาะชั่วโมง
-      }
-    >
-      {hours.map((hour) => (
-        <option key={hour} value={hour}>
-          {hour}
-        </option>
-      ))}
-    </select>
+          </select>
 
-    <span>:</span>
-
-    <select
-      value={endTime.split(':')[1]}                                    // นาทีสิ้นสุดที่เลือกอยู่
-      onChange={(e) =>
-        setEndTime(`${endTime.split(':')[0]}:${e.target.value}`)        // เปลี่ยนเฉพาะนาที
-      }
-    >
-      {minutes.map((minute) => (
-        <option key={minute} value={minute}>
-          {minute}
-        </option>
-      ))}
-    </select>
-  </div>
-</div>
-
-  <div>
-    <label>&nbsp;</label>
-
-    <button
-      className="plot-button"                                // ใช้ CSS ปุ่มเดิม
-      type="button"                                          // ปุ่มทั่วไป
-      onClick={handlePlot}                                   // กดแล้ว Query ข้อมูล
-      disabled={loading}                                     // กันกดซ้ำขณะโหลด
-    >
-      {loading ? 'Loading...' : 'Plot Data'}                 {/* เปลี่ยนข้อความขณะโหลด */}
-    </button>
-  </div>
-</section>  
-      <section className="drag-layout">
-        <div className="analysis-card">
-          <h2>Calculation Inputs</h2>
-
-          <div className="parameter-row">
-            <span>Density</span>
-            <strong>
-              {result?.density_kg_m3
-                ? Number(result.density_kg_m3).toExponential(3)
-                : 'N/A'}{' '}
-              kg/m³
-            </strong>
-          </div>
-
-          <div className="parameter-row">
-            <span>Drag Coefficient (Cd)</span>
-            <strong>{result?.cd ?? 'N/A'}</strong>
-          </div>
-
-          <div className="parameter-row">
-            <span>Area</span>
-            <strong>{result?.area_m2 ?? 'N/A'} m²</strong>
-          </div>
-
-          <div className="parameter-row">
-            <span>Mass</span>
-            <strong>{result?.mass_kg ?? 'N/A'} kg</strong>
-          </div>
-
-          <div className="parameter-row">
-            <span>Relative Velocity</span>
-            <strong>
-              {result?.velocity_relative_m_s ?? 'N/A'} m/s
-            </strong>
-          </div>
         </div>
+
+
+        {/* DATE */}
+
+        <div>
+
+          <label>
+            Date
+          </label>
+
+          <input
+            type="date"
+
+            value={date}
+
+            onChange={
+              e =>
+                setDate(
+                  e.target.value
+                )
+            }
+
+            onKeyDown={
+              e =>
+                e.preventDefault()
+            }
+
+            onClick={
+              e =>
+                e.currentTarget
+                  .showPicker?.()
+            }
+          />
+
+        </div>
+
+
+        {/* START TIME */}
+
+        <div>
+
+          <label>
+            Start Time
+          </label>
+
+
+          <div className="time-selector">
+
+            <select
+
+              value={
+                startTime.split(':')[0]
+              }
+
+              onChange={
+                e =>
+                  setStartTime(
+                    `${e.target.value}:${
+                      startTime.split(':')[1]
+                    }`
+                  )
+              }
+            >
+
+              {hours.map(
+                hour => (
+
+                  <option
+                    key={hour}
+                    value={hour}
+                  >
+                    {hour}
+                  </option>
+
+                )
+              )}
+
+            </select>
+
+
+            <span>:</span>
+
+
+            <select
+
+              value={
+                startTime.split(':')[1]
+              }
+
+              onChange={
+                e =>
+                  setStartTime(
+                    `${
+                      startTime.split(':')[0]
+                    }:${e.target.value}`
+                  )
+              }
+            >
+
+              {minutes.map(
+                minute => (
+
+                  <option
+                    key={minute}
+                    value={minute}
+                  >
+                    {minute}
+                  </option>
+
+                )
+              )}
+
+            </select>
+
+          </div>
+
+        </div>
+
+
+        {/* END TIME */}
+
+        <div>
+
+          <label>
+            End Time
+          </label>
+
+
+          <div className="time-selector">
+
+            <select
+
+              value={
+                endTime.split(':')[0]
+              }
+
+              onChange={
+                e =>
+                  setEndTime(
+                    `${e.target.value}:${
+                      endTime.split(':')[1]
+                    }`
+                  )
+              }
+            >
+
+              {hours.map(
+                hour => (
+
+                  <option
+                    key={hour}
+                    value={hour}
+                  >
+                    {hour}
+                  </option>
+
+                )
+              )}
+
+            </select>
+
+
+            <span>:</span>
+
+
+            <select
+
+              value={
+                endTime.split(':')[1]
+              }
+
+              onChange={
+                e =>
+                  setEndTime(
+                    `${
+                      endTime.split(':')[0]
+                    }:${e.target.value}`
+                  )
+              }
+            >
+
+              {minutes.map(
+                minute => (
+
+                  <option
+                    key={minute}
+                    value={minute}
+                  >
+                    {minute}
+                  </option>
+
+                )
+              )}
+
+            </select>
+
+          </div>
+
+        </div>
+
+
+        {/* BUTTON */}
+
+        <div>
+
+          <label>
+            &nbsp;
+          </label>
+
+          <button
+
+            className="plot-button"
+
+            type="button"
+
+            onClick={
+              handlePlot
+            }
+
+            disabled={
+              loading
+            }
+          >
+
+            {
+              loading
+                ? 'Loading...'
+                : 'Plot Data'
+            }
+
+          </button>
+
+        </div>
+
+      </section>
+
+
+      {/* ====================================================
+          ERROR
+      ==================================================== */}
+
+      {error && (
+
+        <section className="details">
+
+          <p>
+            Error: {error}
+          </p>
+
+        </section>
+
+      )}
+
+
+      {/* ====================================================
+          SELECTED PERIOD
+      ==================================================== */}
+
+      {hasPlotted &&
+       dragData.length > 0 && (
+
+        <section className="analysis-selection-bar">
+
+          <div>
+
+            <span>
+              Satellite
+            </span>
+
+            <strong>
+              Swarm-A
+            </strong>
+
+          </div>
+
+
+          <div>
+
+            <span>
+              Date
+            </span>
+
+            <strong>
+              {date}
+            </strong>
+
+          </div>
+
+
+          <div>
+
+            <span>
+              Time Range
+            </span>
+
+            <strong>
+              {startTime} – {endTime} UTC
+            </strong>
+
+          </div>
+
+
+          <div>
+
+            <span>
+              Data Points
+            </span>
+
+            <strong>
+              {dragData.length}
+            </strong>
+
+          </div>
+
+
+          <div>
+
+            <span>
+              Latest Sample
+            </span>
+
+            <strong>
+              {
+                formatUtcTime(
+                  latestSample?.timestamp
+                )
+              } UTC
+            </strong>
+
+          </div>
+
+        </section>
+
+      )}
+
+
+      {/* ====================================================
+          CALCULATION INPUTS + RESULT
+      ==================================================== */}
+
+      <section className="drag-layout">
+
+
+        {/* INPUTS */}
+
+        <div className="analysis-card">
+
+          <h2>
+            Calculation Inputs
+          </h2>
+
+
+          <div className="parameter-row">
+
+            <span>
+              DNS POD Density
+            </span>
+
+            <strong>
+
+              {
+                formatScientific(
+                  latestSample
+                    ?.density_dns_kg_m3
+                )
+              } kg/m³
+
+            </strong>
+
+          </div>
+
+
+          <div className="parameter-row">
+
+            <span>
+              NRLMSISE-00 Density
+            </span>
+
+            <strong>
+
+              {
+                formatScientific(
+                  latestSample
+                    ?.density_nrl_kg_m3
+                )
+              } kg/m³
+
+            </strong>
+
+          </div>
+
+
+          <div className="parameter-row">
+
+            <span>
+              Drag Coefficient (Cd)
+            </span>
+
+            <strong>
+
+              {
+                formatNumber(
+                  latestSample?.cd,
+                  2
+                )
+              }
+
+            </strong>
+
+          </div>
+
+
+          <div className="parameter-row">
+
+            <span>
+              Projected Area
+            </span>
+
+            <strong>
+
+              {
+                formatNumber(
+                  latestSample
+                    ?.projected_area_m2,
+                  4
+                )
+              } m²
+
+            </strong>
+
+          </div>
+
+
+          <div className="parameter-row">
+
+            <span>
+              Satellite Mass
+            </span>
+
+            <strong>
+
+              {
+                formatNumber(
+                  latestSample
+                    ?.mass_kg,
+                  3
+                )
+              } kg
+
+            </strong>
+
+          </div>
+
+
+          <div className="parameter-row">
+
+            <span>
+              Relative Velocity
+            </span>
+
+            <strong>
+
+              {
+                formatNumber(
+                  formulaResults
+                    ?.velocityMps,
+                  2
+                )
+              } m/s
+
+            </strong>
+
+          </div>
+
+
+          <div className="parameter-row">
+
+            <span>
+              Altitude
+            </span>
+
+            <strong>
+
+              {
+                formatNumber(
+                  latestSample
+                    ?.altitude_km,
+                  3
+                )
+              } km
+
+            </strong>
+
+          </div>
+
+
+          <div className="parameter-row">
+
+            <span>
+              Orbit Number
+            </span>
+
+            <strong>
+
+              {
+                latestSample
+                  ?.orbit_number ??
+                'N/A'
+              }
+
+            </strong>
+
+          </div>
+
+        </div>
+
+
+        {/* ==================================================
+            RESULT
+        ================================================== */}
 
         <div className="analysis-card result-card">
-          <h2>Drag Force</h2>
 
-          <div className="large-result">
-            {result?.drag_force_n
-              ? Number(result.drag_force_n).toExponential(3)
-              : 'N/A'}
+          <h2>
+            Drag Force
+          </h2>
+
+
+          {/* DNS */}
+
+          <div
+            style={{
+              marginBottom: '24px'
+            }}
+          >
+
+            <span>
+              DNS POD
+            </span>
+
+            <div className="large-result">
+
+              {
+                formatScientific(
+                  latestSample
+                    ?.drag_dns_n
+                )
+              }
+
+            </div>
+
+            <p>N</p>
+
           </div>
 
-          <p>N</p>
+
+          {/* NRL */}
+
+          <div
+            style={{
+              marginBottom: '24px'
+            }}
+          >
+
+            <span>
+              NRLMSISE-00
+            </span>
+
+            <div className="large-result">
+
+              {
+                formatScientific(
+                  latestSample
+                    ?.drag_nrl_n
+                )
+              }
+
+            </div>
+
+            <p>N</p>
+
+          </div>
+
+
+          {/* FORMULA */}
 
           <div className="formula">
-            F<sub>D</sub> = ½ ρ C<sub>D</sub> A V²
+
+            F<sub>D</sub>
+            {' = '}
+            ½ ρ C<sub>D</sub> A V
+            <sub>rel</sub>²
+
           </div>
+
         </div>
+
       </section>
+
+
+      {/* ====================================================
+          FORMULA VERIFICATION
+      ==================================================== */}
+
+      {latestSample &&
+       formulaResults && (
+
+        <section className="details">
+
+          <h2>
+            Drag Calculation Verification
+          </h2>
+
+
+          <div className="detail-grid">
+
+
+            <p>
+
+              <strong>
+                DNS Database:
+              </strong>{' '}
+
+              {
+                formatScientific(
+                  latestSample
+                    .drag_dns_n
+                )
+              } N
+
+            </p>
+
+
+            <p>
+
+              <strong>
+                DNS Formula:
+              </strong>{' '}
+
+              {
+                formatScientific(
+                  formulaResults
+                    .dnsDrag
+                )
+              } N
+
+            </p>
+
+
+            <p>
+
+              <strong>
+                NRL Database:
+              </strong>{' '}
+
+              {
+                formatScientific(
+                  latestSample
+                    .drag_nrl_n
+                )
+              } N
+
+            </p>
+
+
+            <p>
+
+              <strong>
+                NRL Formula:
+              </strong>{' '}
+
+              {
+                formatScientific(
+                  formulaResults
+                    .nrlDrag
+                )
+              } N
+
+            </p>
+
+
+            <p>
+
+              <strong>
+                DNS Drag Acceleration:
+              </strong>{' '}
+
+              {
+                formatScientific(
+                  latestSample
+                    .drag_accel_dns_m_s2
+                )
+              } m/s²
+
+            </p>
+
+
+            <p>
+
+              <strong>
+                NRL Drag Acceleration:
+              </strong>{' '}
+
+              {
+                formatScientific(
+                  latestSample
+                    .drag_accel_nrl_m_s2
+                )
+              } m/s²
+
+            </p>
+
+          </div>
+
+        </section>
+
+      )}
+
+
+      {/* ====================================================
+          DRAG GRAPH
+      ==================================================== */}
 
       <section className="graph-box full-width">
+
         <div className="graph-header">
-          <h2>Drag Force Analysis</h2>
-          <span>Waiting for Python Results</span>
+
+          <h2>
+            Drag Force Analysis
+          </h2>
+
+          <span>
+
+            {
+              hasPlotted
+                ? `${dragData.length} points`
+                : 'Select a time period'
+            }
+
+          </span>
+
         </div>
 
-<div className="analysis-graph-placeholder">
-  {error ? (
-    <div className="graph-waiting">
-      <strong>Unable to load data</strong>
-      <span>{error}</span>
-    </div>
-  ) : hasPlotted && dragData.length > 0 ? (
-    <div className="density-chart-container">
-      <Line
-        data={dragChartData}                                 // ส่งข้อมูล Drag เข้า Chart.js
-        options={dragChartOptions}                           // ส่งการตั้งค่ากราฟ
-      />
-    </div>
-  ) : hasPlotted ? (
-    <div className="graph-waiting">
-      <strong>No drag data found</strong>
-      <span>No data available for the selected period.</span>
-    </div>
-  ) : (
-    <div className="graph-waiting">
-      <strong>Select date and time, then click Plot Data</strong>
-      <span>Satellite Drag Force will appear here.</span>
-    </div>
-  )}
-</div>
+
+        <div className="analysis-graph-placeholder">
+
+          {error ? (
+
+            <div className="graph-waiting">
+
+              <strong>
+                Unable to load data
+              </strong>
+
+              <span>
+                {error}
+              </span>
+
+            </div>
+
+          ) : hasPlotted &&
+              dragData.length > 0 ? (
+
+            <div
+              className="density-chart-container"
+              style={{
+                height: '380px'
+              }}
+            >
+
+              <Line
+                data={
+                  dragChartData
+                }
+
+                options={
+                  dragChartOptions
+                }
+              />
+
+            </div>
+
+          ) : hasPlotted ? (
+
+            <div className="graph-waiting">
+
+              <strong>
+                No drag data found
+              </strong>
+
+              <span>
+                No data available
+                for the selected period.
+              </span>
+
+            </div>
+
+          ) : (
+
+            <div className="graph-waiting">
+
+              <strong>
+                Select date and time,
+                then click Plot Data
+              </strong>
+
+              <span>
+                Satellite drag force
+                comparison will appear here.
+              </span>
+
+            </div>
+
+          )}
+
+        </div>
+
       </section>
+
+
+      {/* ====================================================
+          SUMMARY
+      ==================================================== */}
+
+      <section className="comparison-summary">
+
+        <div className="summary-heading">
+
+          <div>
+
+            <h2>
+              Drag Summary
+            </h2>
+
+            <p>
+              Summary of atmospheric drag
+              during the selected period
+            </p>
+
+          </div>
+
+        </div>
+
+
+        <div className="summary-grid">
+
+
+          {/* MEAN DNS */}
+
+          <div className="summary-card">
+
+            <span>
+              Mean DNS Drag
+            </span>
+
+            <strong>
+
+              {
+                summary
+                  ? formatScientific(
+                      summary.meanDns
+                    )
+                  : '—'
+              }
+
+            </strong>
+
+            <small>
+              N
+            </small>
+
+          </div>
+
+
+          {/* MEAN NRL */}
+
+          <div className="summary-card">
+
+            <span>
+              Mean NRL Drag
+            </span>
+
+            <strong>
+
+              {
+                summary
+                  ? formatScientific(
+                      summary.meanNrl
+                    )
+                  : '—'
+              }
+
+            </strong>
+
+            <small>
+              N
+            </small>
+
+          </div>
+
+
+          {/* DIFFERENCE */}
+
+          <div className="summary-card">
+
+            <span>
+              Model Difference
+            </span>
+
+            <strong>
+
+              {
+                summary &&
+                summary.differencePercent !== null
+
+                  ? `${formatNumber(
+                      summary
+                        .differencePercent,
+                      2
+                    )}%`
+
+                  : '—'
+              }
+
+            </strong>
+
+            <small>
+              (NRL − DNS) / DNS
+            </small>
+
+          </div>
+
+
+          {/* PEAK DNS */}
+
+          <div className="summary-card">
+
+            <span>
+              Peak DNS Drag
+            </span>
+
+            <strong>
+
+              {
+                summary
+                  ? formatScientific(
+                      summary.peakDns
+                    )
+                  : '—'
+              }
+
+            </strong>
+
+            <small>
+              N
+            </small>
+
+          </div>
+
+
+          {/* PEAK DNS TIME */}
+
+          <div className="summary-card">
+
+            <span>
+              DNS Peak Time
+            </span>
+
+            <strong>
+
+              {
+                summary
+                  ? formatUtcTime(
+                      summary
+                        .peakDnsTime
+                    )
+                  : '—'
+              }
+
+            </strong>
+
+            <small>
+              UTC
+            </small>
+
+          </div>
+
+
+          {/* DATA POINTS */}
+
+          <div className="summary-card">
+
+            <span>
+              Data Points
+            </span>
+
+            <strong>
+
+              {
+                summary
+                  ? summary.count
+                  : '—'
+              }
+
+            </strong>
+
+            <small>
+              samples
+            </small>
+
+          </div>
+
+        </div>
+
+      </section>
+
     </>
   )
 }
+
 
 export default DragAnalysis
