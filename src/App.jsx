@@ -3,7 +3,6 @@ import { supabase } from './supabaseClient'
 
 import DensityAnalysis from './pages/DensityAnalysis'
 import DragAnalysis from './pages/DragAnalysis'
-import ModelComparison from './pages/ModelComparison'
 import SpaceWeather from './pages/SpaceWeather'
 import Dashboard from './pages/Dashboard'
 
@@ -725,19 +724,6 @@ function App() {
 
           <button
             className={
-              activePage === 'comparison'
-                ? 'active'
-                : ''
-            }
-            onClick={() =>
-              setActivePage('comparison')
-            }
-          >
-            Model Comparison
-          </button>
-
-          <button
-            className={
               activePage === 'weather'
                 ? 'active'
                 : ''
@@ -804,12 +790,6 @@ function App() {
           />
         )}
 
-        {activePage === 'comparison' && (
-          <ModelComparison
-            result={result}
-            densitySeries={densitySeries}
-          />
-        )}
 
         {activePage === 'weather' && (
           <SpaceWeather
