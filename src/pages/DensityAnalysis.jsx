@@ -511,111 +511,64 @@ function DensityAnalysis() {
   // DENSITY CHART
   // ==========================================================
 
-  const densityChartData =
-    useMemo(() => {
+const densityChartData = useMemo(() => {
+  const dnsMean = summary?.dnsMean ?? null;
 
-      const dnsMean =
-        summary?.dnsMean ?? null
+  return {
+    labels: plotData.map(item =>
+      formatUtcTime(item.timestamp)
+    ),
 
-
-      return {
-
-        labels: plotData.map(
-          item =>
-            formatUtcTime(
-              item.timestamp
-            )
+    datasets: [
+      // DNS POD — สีฟ้า
+      {
+        label: 'Swarm-A DNS POD',
+        data: plotData.map(
+          item => item.density_dns_kg_m3
         ),
+        borderColor: '#00CFE8',
+        backgroundColor: 'rgba(0, 207, 232, 0.10)',
+        borderWidth: 1.8,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.15,
+        fill: false,
+        spanGaps: true,
+      },
 
+      // Average — สีฟ้าอ่อน เส้นประ
+      {
+        label: 'Swarm-A Average',
+        data: plotData.map(() => dnsMean),
+        borderColor: '#7DD3FC',
+        backgroundColor: 'rgba(125, 211, 252, 0.10)',
+        borderWidth: 1.8,
+        borderDash: [6, 6],
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        fill: false,
+        spanGaps: true,
+      },
 
-        datasets: [
-
-          // --------------------------------------------------
-          // DNS POD
-          // --------------------------------------------------
-
-          {
-            label:
-              'Swarm-A DNS POD',
-
-            data:
-              plotData.map(
-                item =>
-                  item.density_dns_kg_m3
-              ),
-
-            borderWidth: 2,
-
-            pointRadius:
-              plotData.length > 300
-                ? 0
-                : 2,
-
-            pointHoverRadius: 5,
-
-            tension: 0.15
-          },
-
-
-          // --------------------------------------------------
-          // DNS mean
-          // --------------------------------------------------
-
-          {
-            label:
-              'Swarm-A Average',
-
-            data:
-              plotData.map(
-                () => dnsMean
-              ),
-
-            borderWidth: 2,
-
-            borderDash: [
-              6,
-              6
-            ],
-
-            pointRadius: 0,
-
-            tension: 0
-          },
-
-
-          // --------------------------------------------------
-          // NRLMSISE-00
-          // --------------------------------------------------
-
-          {
-            label:
-              'NRLMSISE-00 Model',
-
-            data:
-              plotData.map(
-                item =>
-                  item.density_nrl_kg_m3
-              ),
-
-            borderWidth: 2,
-
-            pointRadius:
-              plotData.length > 300
-                ? 0
-                : 2,
-
-            pointHoverRadius: 5,
-
-            tension: 0.15
-          }
-
-        ]
-      }
-
-    }, [
-      plotData,
-      summary
-    ])
+      // NRLMSISE-00 — สีน้ำเงิน
+      {
+        label: 'NRLMSISE-00 Model',
+        data: plotData.map(
+          item => item.density_nrl_kg_m3
+        ),
+        borderColor: '#4169E1',
+        backgroundColor: 'rgba(65, 105, 225, 0.10)',
+        borderWidth: 1.8,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.15,
+        fill: false,
+        spanGaps: true,
+      },
+    ],
+  };
+}, [plotData, summary]);
 
 
   // ==========================================================
@@ -1436,89 +1389,6 @@ function DensityAnalysis() {
 
       </section>
 
-
-      {/* ====================================================
-          DRAG GRAPH
-      ==================================================== */}
-
-      <section className="analysis-graph-card">
-
-        <div className="analysis-graph-heading">
-
-          <div>
-
-            <p className="graph-category">
-              SATELLITE RESPONSE
-            </p>
-
-            <h2>
-              Satellite Drag
-            </h2>
-
-            <p>
-              Drag calculated using DNS POD
-              and NRLMSISE-00 densities
-            </p>
-
-          </div>
-
-
-          <span className="graph-unit">
-            N
-          </span>
-
-        </div>
-
-
-        <div className="analysis-graph-placeholder">
-
-          {hasPlotted &&
-           plotData.length > 0 ? (
-
-            <div
-              className="density-chart-container"
-              style={{
-                height: '360px'
-              }}
-            >
-
-              <Line
-                data={
-                  dragChartData
-                }
-
-                options={
-                  dragChartOptions
-                }
-              />
-
-            </div>
-
-          ) : (
-
-            <div className="graph-waiting">
-
-              <strong>
-
-                {hasPlotted
-                  ? 'No data found for the selected period'
-                  : 'Select parameters and click Plot Data'
-                }
-
-              </strong>
-
-              <span>
-                Satellite drag comparison
-                will appear here.
-              </span>
-
-            </div>
-
-          )}
-
-        </div>
-
-      </section>
 
 
       {/* ====================================================

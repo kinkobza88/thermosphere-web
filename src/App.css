@@ -141,22 +141,27 @@ select {
 
 /* Filters */
 
+
 .filter-panel {
   background: white;
   padding: 20px;
   border-radius: 14px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 18px;
+  align-items: end;
   margin-bottom: 24px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.filter-panel div {
+
+.filter-panel > div {
   display: flex;
   flex-direction: column;
   gap: 7px;
+  min-width: 0;
 }
+
 
 .filter-panel label {
   font-size: 13px;
@@ -528,7 +533,7 @@ select {
 
 .plot-button {
   height: 43px;
-  padding: 0 22px;
+  padding: 0 35px;
   border: none;
   border-radius: 9px;
   background: #111827;
@@ -537,6 +542,7 @@ select {
   cursor: pointer;
   white-space: nowrap;
   transition: 0.2s ease;
+  align-self: end;
 }
 
 .plot-button:hover {
@@ -952,26 +958,50 @@ select {
   margin: 6px 0 0;                      /* เว้นระยะระหว่างหัวข้อกับคำอธิบาย */
   text-align: center;                   /* จัดคำอธิบายให้อยู่กึ่งกลางเหมือนหัวข้อ */
 }
+
 .time-selector {
-  display: flex;              /* จัดชั่วโมง นาที ให้อยู่บรรทัดเดียวกัน */
-  align-items: center;        /* จัดให้อยู่กึ่งกลางแนวตั้ง */
-  gap: 8px;                   /* เว้นระยะระหว่างช่อง */
-  width: 100%;                /* ใช้พื้นที่เต็ม */
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: nowrap;
 }
 
 .time-selector select {
-  flex: 1;                    /* ให้ช่อง Hour / Minute กว้างเท่ากัน */
-  min-width: 0;               /* ป้องกัน select ดันออกนอกกรอบ */
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  max-width: 120px;
+  height: 40px;
+  box-sizing: border-box;
 }
 
 .time-selector span {
-  font-weight: 700;           /* ทำเครื่องหมาย : ให้ชัด */
-  color: #64748b;             /* สีเครื่องหมาย */
+  font-weight: 700;
+  color: #64748b;
+  flex-shrink: 0;
 }
+
 .density-chart-container {
   width: 100%;                  /* ให้กราฟกว้างเต็มพื้นที่ของกล่อง */
   height: 100%;                 /* ให้กราฟสูงเต็มพื้นที่ของกล่อง */
   padding: 18px;                /* เว้นระยะกราฟจากขอบ */
   box-sizing: border-box;       /* รวม padding ไว้ในขนาดของกล่อง */
   position: relative;           /* ช่วยให้ Chart.js คำนวณขนาด canvas ได้ถูกต้อง */
+}
+/* จัดช่องวันที่และปุ่ม Plot Data */
+.analysis-filter-grid {
+  display: grid !important;
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(100px, 0.8fr) minmax(100px, 0.8fr) minmax(130px, 1fr) auto !important;
+  gap: 10px !important;
+  align-items: end !important;
+}
+
+.analysis-filter-grid .plot-button {
+  align-self: end !important;
+  height: 43px;
+  width: auto !important;
+  margin: 0 !important;
+  white-space: nowrap;
 }

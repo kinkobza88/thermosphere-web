@@ -395,9 +395,14 @@ function Dashboard({
           data: satelliteData.map(
             item => item.density_dns_kg_m3
           ),
-          borderWidth: 2,
+          borderColor: '#00CFE8',
+          backgroundColor: 'rgba(0, 207, 232, 0.10)',
+          borderWidth: 1.8,
           pointRadius: 0,
-          tension: 0.15
+          pointHoverRadius: 4,
+          tension: 0.15,
+          fill: false,
+          spanGaps: true,
         },
 
         {
@@ -405,15 +410,20 @@ function Dashboard({
           data: satelliteData.map(
             item => item.density_nrl_kg_m3
           ),
-          borderWidth: 2,
+          borderColor: '#4169E1',
+          backgroundColor: 'rgba(65, 105, 225, 0.10)',
+          borderWidth: 1.8,
           pointRadius: 0,
-          tension: 0.15
-        }
+          pointHoverRadius: 4,
+          tension: 0.15,
+          fill: false,
+          spanGaps: true,
+        },
 
-      ]
-    }
+      ],
+    };
 
-  }, [satelliteData])
+  }, [satelliteData]);
 
 
   // ==========================================================
@@ -435,9 +445,14 @@ function Dashboard({
           data: satelliteData.map(
             item => item.drag_dns_n
           ),
-          borderWidth: 2,
+          borderColor: '#00D4FF',
+          backgroundColor: 'rgba(0, 212, 255, 0.15)',
+          borderWidth: 1.8,
           pointRadius: 0,
-          tension: 0.15
+          pointHoverRadius: 4,
+          tension: 0.15,
+          fill: false,
+          spanGaps: true,
         },
 
         {
@@ -445,9 +460,14 @@ function Dashboard({
           data: satelliteData.map(
             item => item.drag_nrl_n
           ),
-          borderWidth: 2,
+          borderColor: '#4169FF',
+          backgroundColor: 'rgba(65, 105, 255, 0.15)',
+          borderWidth: 1.8,
           pointRadius: 0,
-          tension: 0.15
+          pointHoverRadius: 4,
+          tension: 0.15,
+          fill: false,
+          spanGaps: true,
         }
 
       ]

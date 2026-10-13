@@ -613,7 +613,8 @@ function DragAnalysis() {
           {
             label:
               'Drag from DNS POD',
-
+              borderColor: '#2563eb',
+              backgroundColor: 'rgba(37, 99, 235, 0.1)',
             data:
               dragData.map(
                 item =>
@@ -640,6 +641,8 @@ function DragAnalysis() {
           {
             label:
               'Drag from NRLMSISE-00',
+              borderColor: '#e05252',
+              backgroundColor: 'rgba(224, 82, 82, 0.1)',
 
             data:
               dragData.map(
@@ -667,6 +670,8 @@ function DragAnalysis() {
           {
             label:
               'Average DNS Drag',
+              borderColor: '#16a34a',
+              backgroundColor: 'rgba(22, 163, 74, 0.1)',
 
             data:
               dragData.map(
@@ -690,10 +695,7 @@ function DragAnalysis() {
         ]
       }
 
-    }, [
-      dragData,
-      summary
-    ])
+    }, [dragData,summary])
 
 
   // ==========================================================

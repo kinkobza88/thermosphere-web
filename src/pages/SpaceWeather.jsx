@@ -455,8 +455,10 @@ function SpaceWeather() {
                 row =>
                   row.f107
               ),
-
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
             borderWidth: 2,
+
 
             pointRadius: 0,
 
@@ -475,7 +477,8 @@ function SpaceWeather() {
                 row =>
                   row.f107a
               ),
-
+            borderColor: '#f59e0b',
+            backgroundColor: 'rgba(245, 158, 11, 0.1)',
             borderWidth: 2,
 
             pointRadius: 0,
@@ -517,7 +520,8 @@ function SpaceWeather() {
               ),
 
             yAxisID: 'yKp',
-
+            borderColor: '#2563eb',
+            backgroundColor: 'rgba(37, 99, 235, 0.1)',
             borderWidth: 2,
 
             pointRadius: 0,
@@ -538,6 +542,8 @@ function SpaceWeather() {
               ),
 
             yAxisID: 'yAp',
+            borderColor: '#e05252',
+            backgroundColor: 'rgba(224, 82, 82, 0.1)',
 
             borderWidth: 2,
 
@@ -559,6 +565,8 @@ function SpaceWeather() {
               ),
 
             yAxisID: 'yAp',
+            borderColor: '#16a34a',
+            backgroundColor: 'rgba(22, 163, 74, 0.1)',
 
             borderWidth: 2,
 
@@ -602,6 +610,8 @@ function SpaceWeather() {
                 row =>
                   row.dst_nt
               ),
+            borderColor: '#8b5cf6',
+            backgroundColor: 'rgba(139, 92, 246, 0.1)',
 
             borderWidth: 2,
 
@@ -621,7 +631,8 @@ function SpaceWeather() {
                 row =>
                   row.sym_h_nt
               ),
-
+            borderColor: '#06b6d4',
+            backgroundColor: 'rgba(6, 182, 212, 0.1)',
             borderWidth: 2,
 
             pointRadius: 0,
