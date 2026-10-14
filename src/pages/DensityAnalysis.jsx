@@ -526,8 +526,8 @@ const densityChartData = useMemo(() => {
         data: plotData.map(
           item => item.density_dns_kg_m3
         ),
-        borderColor: '#00CFE8',
-        backgroundColor: 'rgba(0, 207, 232, 0.10)',
+        borderColor: '#2563eb',
+        backgroundColor: 'rgba(37, 99, 235, 0.1)',
         borderWidth: 1.8,
         pointRadius: 0,
         pointHoverRadius: 4,
@@ -557,8 +557,8 @@ const densityChartData = useMemo(() => {
         data: plotData.map(
           item => item.density_nrl_kg_m3
         ),
-        borderColor: '#4169E1',
-        backgroundColor: 'rgba(65, 105, 225, 0.10)',
+        borderColor: '#e05252',
+        backgroundColor: 'rgba(224, 82, 82, 0.1)',
         borderWidth: 1.8,
         pointRadius: 0,
         pointHoverRadius: 4,

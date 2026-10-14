@@ -395,8 +395,8 @@ function Dashboard({
           data: satelliteData.map(
             item => item.density_dns_kg_m3
           ),
-          borderColor: '#00CFE8',
-          backgroundColor: 'rgba(0, 207, 232, 0.10)',
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37, 99, 235, 0.1)',
           borderWidth: 1.8,
           pointRadius: 0,
           pointHoverRadius: 4,
@@ -410,8 +410,8 @@ function Dashboard({
           data: satelliteData.map(
             item => item.density_nrl_kg_m3
           ),
-          borderColor: '#4169E1',
-          backgroundColor: 'rgba(65, 105, 225, 0.10)',
+          borderColor: '#e05252',
+          backgroundColor: 'rgba(224, 82, 82, 0.1)',
           borderWidth: 1.8,
           pointRadius: 0,
           pointHoverRadius: 4,
@@ -445,8 +445,8 @@ function Dashboard({
           data: satelliteData.map(
             item => item.drag_dns_n
           ),
-          borderColor: '#00D4FF',
-          backgroundColor: 'rgba(0, 212, 255, 0.15)',
+          borderColor: '#2563eb',
+          backgroundColor: 'rgba(37, 99, 235, 0.1)',
           borderWidth: 1.8,
           pointRadius: 0,
           pointHoverRadius: 4,
@@ -460,8 +460,9 @@ function Dashboard({
           data: satelliteData.map(
             item => item.drag_nrl_n
           ),
-          borderColor: '#4169FF',
-          backgroundColor: 'rgba(65, 105, 255, 0.15)',
+          borderColor: '#e05252',
+          backgroundColor: 'rgba(224, 82, 82, 0.1)',
+
           borderWidth: 1.8,
           pointRadius: 0,
           pointHoverRadius: 4,
