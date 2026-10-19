@@ -509,7 +509,7 @@ function Dashboard({
 
             return (
               `${context.dataset.label}: ` +
-              `${Number(value).toExponential(4)} kg/mÂ³`
+              `${Number(value).toExponential(4)} kg/m³`
             )
           }
         }
@@ -534,7 +534,7 @@ function Dashboard({
 
         title: {
           display: true,
-          text: 'Density (kg/mÂ³)'
+          text: 'Density (kg/m³)'
         },
 
         ticks: {
@@ -811,7 +811,7 @@ function Dashboard({
 
           </div>
 
-          <span>kg/mÂ³</span>
+          <span>kg/m³</span>
 
         </div>
 
@@ -831,7 +831,7 @@ function Dashboard({
 
           </div>
 
-          <span>kg/mÂ³</span>
+          <span>kg/m³</span>
 
         </div>
 
@@ -851,7 +851,7 @@ function Dashboard({
 
           </div>
 
-          <span>DNS POD â€¢ N</span>
+          <span>DNS POD  N</span>
 
         </div>
 
@@ -1045,7 +1045,7 @@ function Dashboard({
               latestSatellite
                 ?.latitude_deg,
               4
-            )}Â°
+            )}°
           </p>
 
           <p>
@@ -1054,7 +1054,7 @@ function Dashboard({
               latestSatellite
                 ?.longitude_deg,
               4
-            )}Â°
+            )}°
           </p>
 
           <p>
@@ -1158,7 +1158,7 @@ function Dashboard({
             {formatScientific(
               latestSatellite
                 ?.density_dns_kg_m3
-            )} kg/mÂ³
+            )} kg/m³
           </p>
 
 
@@ -1170,7 +1170,7 @@ function Dashboard({
             {formatScientific(
               latestSatellite
                 ?.density_nrl_kg_m3
-            )} kg/mÂ³
+            )} kg/m³
           </p>
 
 
@@ -1218,7 +1218,7 @@ function Dashboard({
               latestSatellite
                 ?.projected_area_m2,
               4
-            )} mÂ²
+            )} m²
           </p>
 
 
@@ -1255,7 +1255,7 @@ function Dashboard({
             {formatScientific(
               latestSatellite
                 ?.drag_accel_dns_m_s2
-            )} m/sÂ²
+            )} m/s²
           </p>
 
 
@@ -1267,7 +1267,7 @@ function Dashboard({
             {formatScientific(
               latestSatellite
                 ?.drag_accel_nrl_m_s2
-            )} m/sÂ²
+            )} m/s²
           </p>
 
         </div>
