@@ -7,6 +7,8 @@ import SpaceWeather from './pages/SpaceWeather'
 import Dashboard from './pages/Dashboard'
 
 import './App.css'
+import OrbitPrediction from './pages/OrbitPrediction'
+
 
 function App() {
   const [result, setResult] = useState(null)
@@ -424,6 +426,18 @@ function App() {
             Space Weather
           </button>
 
+          
+<button
+  className={
+    activePage === 'orbit'
+      ? 'active'
+      : ''
+  }
+  onClick={() => setActivePage('orbit')}
+>
+  Orbit Prediction
+</button>
+
         </nav>
 
 
@@ -496,6 +510,11 @@ function App() {
             setSelectedDate={setSelectedDate}
           />
         )}
+        
+        {activePage === 'orbit' && (
+        <OrbitPrediction />
+        )}
+
 
       </main>
 
