@@ -12,8 +12,8 @@ import {
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend)
 
-const API_URL = 'http://127.0.0.1:8000/api/orbit-prediction/run'
-const COMPARE_API_URL = 'http://127.0.0.1:8000/api/orbit-prediction/compare'
+const API_URL = 'https://satellite-orbit-backend.onrender.com/api/orbit-prediction/run'
+const COMPARE_API_URL = 'https://satellite-orbit-backend.onrender.com/api/orbit-prediction/compare'
 const DEFAULT_INPUTS = {
   satellite_name: 'Custom satellite',
   mass_kg: 1,
