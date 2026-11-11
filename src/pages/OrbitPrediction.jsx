@@ -448,7 +448,9 @@ async function compareScenarios() {
     </label>
   </div>
 )}
-            {fields.map(([key, label, type]) => (
+            {fields
+              .filter(([key]) => key !== 'cd' || !inputs.dria_cd?.enabled)
+              .map(([key, label, type]) => (
               <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <span>{label}</span>
                 <input
